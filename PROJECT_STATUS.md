@@ -6,12 +6,12 @@ Living tracker. Update this at the end of every milestone/session.
 - Project concept selected: Vendor Data Reconciliation & Risk Platform (see [docs/charter.md](docs/charter.md)).
 - Charter written: problem statement, requirements, NFRs, success metrics, risks, architecture decisions, roadmap.
 - Key decisions made: PostgreSQL, batch/ELT, deterministic+LLM-hybrid matching, FastAPI backend, server-rendered MVP UI, Azure for deployment.
+- **M0: Project setup** — `uv`-managed Python project (`src/concord` package layout: ingestion, normalization, matching, risk, api, db), `ruff` (lint+format) and `pytest` configured and passing, `docker-compose.yml` for local Postgres, `.env.example`, GitHub Actions CI skeleton (lint + format-check + test).
 
 ## Current Work
-- M0: Project setup (repo scaffold, tooling, local Postgres, CI skeleton) — not yet started.
+- M1: Synthetic data generation + labeled ground truth — not yet started.
 
 ## Upcoming
-- M1: Synthetic data generation + labeled ground truth.
 - M2: Ingestion + normalization pipeline.
 - M3: Deterministic matching engine v1.
 - M4: LLM adjudication for borderline matches.
