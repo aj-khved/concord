@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Concord — {{ vendor.legal_name }}{% endblock %}
+{% block content %}
+<h1>{{ vendor.legal_name }}</h1>
+<div class="card">
+  <p>{{ vendor.address_line1 }}, {{ vendor.city }}, {{ vendor.state }} {{ vendor.postal_code }}, {{ vendor.country }}</p>
+  <p>Tax ID: {{ vendor.tax_id or "—" }} · Phone: {{ vendor.phone or "—" }} · Category: {{ vendor.category or "—" }}</p>
+</div>
+
+<h2>Source records ({{ members|length }})</h2>
+<table>
+  <tr><th>Source</th><th>Source ID</th><th>Legal name (as ingested)</th><th>Address (as ingested)</th></tr>
+  {% for m in members %}
+  <tr>
+    <td>{{ m.source }}</td>
+    <td>{{ m.source_record_id }}</td>
+    <td>{{ m.legal_name }}</td>
+    <td>{{ m.address_line1 }}, {{ m.city }}, {{ m.state }} {{ m.postal_code }}</td>
+  </tr>
+  {% endfor %}
+</table>
+<p><a href="/vendors">&larr; Back to vendor master</a></p>
+{% endblock %}

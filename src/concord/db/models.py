@@ -5,6 +5,8 @@ from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Uniqu
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+_GOLDEN_VENDOR_FK_NAME = "fk_normalized_vendor_records_golden_vendor_id"
+
 
 class Base(DeclarativeBase):
     pass
@@ -52,6 +54,11 @@ class NormalizedVendorRecord(Base):
         default=lambda: datetime.datetime.now(datetime.UTC),
         onupdate=lambda: datetime.datetime.now(datetime.UTC),
     )
+    golden_vendor_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("golden_vendors.id", name=_GOLDEN_VENDOR_FK_NAME),
+        nullable=True,
+    )
 
 
 class MatchCandidate(Base):
@@ -97,6 +104,51 @@ class LlmAdjudication(Base):
     outcome: Mapped[str] = mapped_column(String(30))
     confidence: Mapped[float] = mapped_column(Float)
     rationale: Mapped[str] = mapped_column(String(500))
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.datetime.now(datetime.UTC)
+    )
+
+
+class HumanReview(Base):
+    """One reviewer decision for one match_candidate. A human decision is
+    final — it overrides the deterministic engine's tier and any LLM
+    adjudication (see concord/review/resolution.py). Append-only and unique
+    per candidate: a pair is only ever decided by a human once."""
+
+    __tablename__ = "human_reviews"
+    __table_args__ = (UniqueConstraint("match_candidate_id", name="uq_reviewed_candidate"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    match_candidate_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("match_candidates.id")
+    )
+    decision: Mapped[str] = mapped_column(String(10))  # "approve" or "reject"
+    reviewer: Mapped[str] = mapped_column(String(100))
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.datetime.now(datetime.UTC)
+    )
+
+
+class GoldenVendor(Base):
+    """The reconciled vendor master (FR8). Rebuilt from scratch on every
+    build_golden_vendors run (see concord/golden/builder.py) — this table is
+    a materialized view of the current match decisions, not a source of
+    truth in its own right."""
+
+    __tablename__ = "golden_vendors"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    legal_name: Mapped[str] = mapped_column(String(255))
+    address_line1: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    postal_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    country: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    tax_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    member_count: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.datetime.now(datetime.UTC)
     )

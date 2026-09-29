@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{% block title %}Concord{% endblock %}</title>
+  <meta name="color-scheme" content="light">
+  <style>
+    html { color-scheme: light; }
+    body { font-family: -apple-system, "Segoe UI", sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; background: #ffffff; }
+    nav a { margin-right: 1rem; font-weight: 600; text-decoration: none; color: #0b5fff; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+    th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #ddd; color: #1a1a1a; }
+    .card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; background: #fafafa; }
+    .pair { display: flex; gap: 2rem; }
+    .record { flex: 1; }
+    button { padding: 0.4rem 0.8rem; margin-right: 0.5rem; cursor: pointer; }
+    input[type=text] { padding: 0.4rem; margin-right: 0.5rem; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/">Dashboard</a>
+    <a href="/review">Review Queue</a>
+    <a href="/vendors">Vendors</a>
+  </nav>
+  <hr>
+  {% block content %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Concord — Review Queue{% endblock %}
+{% block content %}
+<h1>Review Queue ({{ pending|length }})</h1>
+
+{% if not pending %}
+<p>Nothing needs review right now — every candidate pair was resolved automatically by the matching engine or the LLM adjudicator.</p>
+{% endif %}
+
+{% for item in pending %}
+<div class="card">
+  <div class="pair">
+    <div class="record">
+      <strong>Source {{ item.record_a.source }}</strong> ({{ item.record_a.source_record_id }})<br>
+      {{ item.record_a.legal_name }}<br>
+      {{ item.record_a.address_line1 }}, {{ item.record_a.city }}, {{ item.record_a.state }} {{ item.record_a.postal_code }}<br>
+      Tax ID: {{ item.record_a.tax_id or "—" }} · Phone: {{ item.record_a.phone or "—" }} · {{ item.record_a.category or "—" }}
+    </div>
+    <div class="record">
+      <strong>Source {{ item.record_b.source }}</strong> ({{ item.record_b.source_record_id }})<br>
+      {{ item.record_b.legal_name }}<br>
+      {{ item.record_b.address_line1 }}, {{ item.record_b.city }}, {{ item.record_b.state }} {{ item.record_b.postal_code }}<br>
+      Tax ID: {{ item.record_b.tax_id or "—" }} · Phone: {{ item.record_b.phone or "—" }} · {{ item.record_b.category or "—" }}
+    </div>
+  </div>
+  <p>
+    Deterministic score: {{ "%.2f"|format(item.candidate.score) }}
+    {% if item.adjudication %}
+      · LLM said: <strong>{{ item.adjudication.outcome }}</strong> ({{ "%.2f"|format(item.adjudication.confidence) }}) — "{{ item.adjudication.rationale }}"
+    {% else %}
+      · Not yet adjudicated by the LLM
+    {% endif %}
+  </p>
+  <form method="post" action="/review/{{ item.candidate.id }}/decide">
+    <input type="text" name="reviewer" placeholder="Your name" required>
+    <button type="submit" name="decision" value="approve">Approve match</button>
+    <button type="submit" name="decision" value="reject">Reject match</button>
+  </form>
+</div>
+{% endfor %}
+{% endblock %}

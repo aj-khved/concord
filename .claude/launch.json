@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "concord-web",
+      "runtimeExecutable": "C:\\Users\\akhve\\.local\\bin\\uv.exe",
+      "runtimeArgs": ["run", "uvicorn", "concord.api.app:app", "--port", "8010"],
+      "port": 8010
+    }
+  ]
+}

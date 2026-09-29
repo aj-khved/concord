@@ -13,20 +13,22 @@ Living tracker. Update this at the end of every milestone/session.
 
 - **M4: LLM adjudication for borderline matches** — `concord/llm/adjudicator.py` calls Claude Haiku 4.5 with a forced tool call (`adjudicate_vendor_pair`, schema-validated JSON output — the model literally cannot return anything else), so its only possible actions are structured judgment fields, not free text or code — the key mitigation against prompt injection via ingested record data (system prompt also explicitly tells the model record fields are data, not instructions). Below a 0.70 confidence threshold, results are treated as `uncertain` regardless of the model's yes/no answer, and stay routed to human review (M5) rather than being auto-trusted. Persisted to a new `llm_adjudications` table (one adjudication per candidate, enforced by a unique constraint — idempotent and cost-safe to re-run). `scripts/run_llm_adjudication.py` runs it (capped at `LLM_MAX_CALLS_PER_RUN`, default 200); `scripts/evaluate_adjudication.py` scores it against ground truth. **Ran for real against a personal Anthropic API key** (blocked initially by North Highland's org-creation policy on the corporate domain — resolved by signing up with a personal account, appropriate since this is a personal project): all 37 pending-review pairs were correctly `confirmed_match` (precision 1.000, 0 errors) — combined with M3's 2,304 auto-merges, the full pipeline resolves all 2,341 ground-truth pairs with zero mistakes on this dataset. Hit and fixed two real API-compatibility issues along the way: this SDK/API generation replaced `temperature` with an `effort` parameter, and `effort` itself isn't supported on Haiku 4.5 specifically — removed it, relying on the model default. 6 new unit tests using a fake client (no real network calls in the test suite) (39 total). Honest caveat, same as M3: this is a clean result on synthetic data — real-world messiness and genuinely ambiguous cases would exercise the `uncertain` path much more.
 
+- **M5: Review workflow + minimal UI** — `concord/review/resolution.py` is the single source of truth for a pair's final status (human decision > LLM adjudication > deterministic tier). `concord/golden/builder.py` implements union-find clustering over every MATCH-status pair into golden vendors (FR8), picking each cluster's most-complete member record as the canonical representative; `concord/golden/rebuild.py` orchestrates a full rebuild against the DB (cheap enough at ~5,000 records to run synchronously after every human decision). Server-rendered FastAPI + Jinja2 UI (`concord/api/app.py`): dashboard, review queue (side-by-side evidence, approve/reject), and a browsable vendor master. **Verified live in a browser**, not just via tests — and that's exactly how a real bug was caught: `match_candidates` is append-only (one batch per matching-engine run), and neither the dashboard nor the golden-vendor rebuild was filtering to the latest batch, so a stray second batch (from re-running `run_matching.py` during M3 verification) double-counted pairs. Fixed by filtering both to the most recent `batch_id`; added a regression test (`test_golden_rebuild_integration.py`) that fabricates two batches with conflicting tiers and asserts only the newer one is honored. Also fixed a Starlette API-signature change (`TemplateResponse` now takes `request` positionally, not inside the context dict) and a dark-background/dark-text contrast bug from not setting an explicit `color-scheme`/background. **Real result after fixes: 2,341 matches, 245 non-matches, 0 needing human review, 3,060 golden vendors from 4,921 source records** — exactly the true vendor count M1 generated. Manually exercised the full approve/reject flow end-to-end in the browser against a manufactured test pair (cleaned up afterward). 13 new unit/integration tests (52 total).
+
 ## Current Work
-- M5: Review workflow + minimal UI — not yet started.
+- M6: Risk module — not yet started.
 
 ## Upcoming
-- M6: Risk module.
 - M7: API polish + observability.
 - M8: Deploy to Azure.
 - M9: Documentation + portfolio case study.
 
 ## Known Bugs
-_None yet — pre-implementation._
+_None currently open — see M5 entry above for bugs found and fixed this milestone._
 
 ## Technical Debt
-_None yet._
+- Dashboard and vendor-list queries (`concord/api/app.py`) load full result sets into Python and count/sort in-memory rather than using SQL `COUNT`/`GROUP BY`/pagination. Fine at ~5,000 records; would need addressing before this scaled to real production volumes.
+- `golden_vendors` is rebuilt from scratch on every change rather than patched incrementally (deliberate simplicity choice, see `concord/golden/rebuild.py` docstring) — revisit only if rebuild time becomes noticeable at much larger scale.
 
 ## Architecture Decisions
 See [docs/charter.md](docs/charter.md) §9 for the initial decision set. Future decisions (e.g., migration tool choice, blocking key design, LLM provider/model choice) will be logged here as they're made, with rationale.
