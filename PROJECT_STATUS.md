@@ -7,12 +7,12 @@ Living tracker. Update this at the end of every milestone/session.
 - Charter written: problem statement, requirements, NFRs, success metrics, risks, architecture decisions, roadmap.
 - Key decisions made: PostgreSQL, batch/ELT, deterministic+LLM-hybrid matching, FastAPI backend, server-rendered MVP UI, Azure for deployment.
 - **M0: Project setup** — `uv`-managed Python project (`src/concord` package layout: ingestion, normalization, matching, risk, api, db), `ruff` (lint+format) and `pytest` configured and passing, `docker-compose.yml` for local Postgres, `.env.example`, GitHub Actions CI skeleton (lint + format-check + test).
+- **M1: Synthetic data generation** — `scripts/generate_synthetic_data.py` produces 3 heterogeneous sources (ERP CSV, manual-upload CSV, partner JSON feed) with engineered messiness (legal-suffix drift, case drift, typos, address format variation, tax-ID format/omission, phone format variation) and 60 deliberately confusable non-duplicate pairs. Ground truth (`record_index.csv`, `ground_truth_pairs.csv`) generated and committed. Documented in [docs/data_messiness_spec.md](docs/data_messiness_spec.md). Default run: 3,060 vendors, ~1,640 records/source, 2,341 true duplicate pairs. 4 tests passing.
 
 ## Current Work
-- M1: Synthetic data generation + labeled ground truth — not yet started.
+- M2: Ingestion + normalization pipeline — not yet started.
 
 ## Upcoming
-- M2: Ingestion + normalization pipeline.
 - M3: Deterministic matching engine v1.
 - M4: LLM adjudication for borderline matches.
 - M5: Review workflow + minimal UI.
