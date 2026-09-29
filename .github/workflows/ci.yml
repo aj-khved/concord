@@ -8,6 +8,25 @@ on:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: concord
+          POSTGRES_PASSWORD: concord_dev_password
+          POSTGRES_DB: concord
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U concord"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql+psycopg://concord:concord_dev_password@localhost:5432/concord
+
     steps:
       - uses: actions/checkout@v4
 
@@ -18,13 +37,16 @@ jobs:
         run: uv python install 3.11
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: uv sync --all-groups
 
       - name: Lint (ruff check)
         run: uv run ruff check .
 
       - name: Format check (ruff format)
         run: uv run ruff format --check .
+
+      - name: Apply database migrations
+        run: uv run alembic upgrade head
 
       - name: Test
         run: uv run pytest

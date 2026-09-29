@@ -1,0 +1,16 @@
+[
+  {
+    "recordId": "TC-01",
+    "companyName": "Test Co Two",
+    "location": {
+      "street": "200 Oak Ave",
+      "city": "Chicago",
+      "region": "IL",
+      "postalCode": "60601",
+      "country": "USA"
+    },
+    "identifiers": { "taxId": "98-7654321" },
+    "contact": { "phone": "+1 312 555 0200" },
+    "vertical": "Logistics"
+  }
+]
