@@ -80,6 +80,28 @@ class MatchCandidate(Base):
     )
 
 
+class LlmAdjudication(Base):
+    """One LLM judgment for one match_candidate. Append-only and keyed so a
+    candidate is only ever adjudicated once (idempotency, and cost control —
+    re-running the adjudication script never re-pays for a pair it already
+    has an answer for)."""
+
+    __tablename__ = "llm_adjudications"
+    __table_args__ = (UniqueConstraint("match_candidate_id", name="uq_adjudicated_candidate"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    match_candidate_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("match_candidates.id")
+    )
+    model: Mapped[str] = mapped_column(String(100))
+    outcome: Mapped[str] = mapped_column(String(30))
+    confidence: Mapped[float] = mapped_column(Float)
+    rationale: Mapped[str] = mapped_column(String(500))
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.datetime.now(datetime.UTC)
+    )
+
+
 class DataQualityRun(Base):
     """One row per ingestion run, summarizing pass/fail counts and the
     breakdown of issue types found (FR11)."""
