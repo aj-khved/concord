@@ -1,7 +1,7 @@
 import datetime
 import uuid
 
-from sqlalchemy import JSON, DateTime, Integer, String, UniqueConstraint
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -51,6 +51,32 @@ class NormalizedVendorRecord(Base):
         DateTime(timezone=True),
         default=lambda: datetime.datetime.now(datetime.UTC),
         onupdate=lambda: datetime.datetime.now(datetime.UTC),
+    )
+
+
+class MatchCandidate(Base):
+    """Output of one matching-engine run for one candidate pair. Append-only
+    per batch (like raw_vendor_records) — re-running matching produces a new
+    batch rather than overwriting prior results, so past runs stay auditable."""
+
+    __tablename__ = "match_candidates"
+    __table_args__ = (
+        UniqueConstraint("batch_id", "record_id_1", "record_id_2", name="uq_match_pair"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    batch_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True)
+    record_id_1: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("normalized_vendor_records.id")
+    )
+    record_id_2: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("normalized_vendor_records.id")
+    )
+    score: Mapped[float] = mapped_column(Float)
+    tier: Mapped[str] = mapped_column(String(20))
+    features: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.datetime.now(datetime.UTC)
     )
 
 
