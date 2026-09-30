@@ -19,11 +19,13 @@ Living tracker. Update this at the end of every milestone/session.
 
 - **M7: API polish + observability** — added a real JSON REST API (FR10) under `/api/*` (`concord/api/rest.py` + `concord/api/schemas.py`): vendor list/search/detail, pending-review list, review-decision submission, an ingestion-trigger endpoint, and a pipeline-runs metrics endpoint — auto-documented at `/docs` via FastAPI's OpenAPI generation. Refactored the review/decision business logic shared by the HTML and JSON routes into `concord/api/review_service.py` rather than duplicating it. Added structured JSON request logging (`concord/observability/logging_config.py`) and a `pipeline_runs` table (`concord/observability/pipeline_run.py`) that every pipeline script now reports into — duration, status, a flexible summary dict, and for the LLM scripts, real token counts + an estimated cost. **Found and fixed a genuine architectural bug by actually re-running the pipeline end-to-end**: `llm_adjudications` and `human_reviews` were keyed by the ephemeral per-batch `match_candidate_id`, so re-running the matching engine (which always creates a fresh batch) silently orphaned every prior LLM/human decision — directly contradicting M4's "idempotent, cost-safe to re-run" claim. Re-keyed both tables by the stable `(record_id_1, record_id_2)` pair identity instead, with a migration that backfills existing rows from `match_candidates` rather than losing the 37 real adjudications already paid for. Verified the fix live: re-ran matching, adjudication correctly found all 37 pairs already answered (**zero new API calls**), and golden vendors landed back at exactly 3,060. Also caught and fixed a second latent bug in the same script (a `.scalars()` misuse that only surfaced once `llm_adjudications` was non-empty) and a `pipeline_runs` history entry literally captured that failure's exact error message before the fix — genuine observability, not a designed demo. 13 new tests (78 total).
 
+- **M8: Deploy to Azure** — Dockerized the app (`Dockerfile`, migrations run at container start via `alembic upgrade head` before `uvicorn` starts) and verified it locally via `docker compose` before touching any cloud resource. **Pushed this repo to GitHub for the first time** (`github.com/aj-khved/concord`, public) — the CI workflow that had sat unused since M0 finally ran for real and passed cleanly (78 tests, lint, format, migrations, all green on its first-ever run). Provisioned real Azure infrastructure: Container Apps (scale-to-zero, near-$0 idle cost) for the app, Azure Database for PostgreSQL Flexible Server (Burstable B1ms) for the database, GitHub Container Registry (free) instead of Azure Container Registry (~$5/month) for the image. Hit and worked through several real, unglamorous cloud realities: East US/East US 2 were region-restricted for this new subscription's Postgres SKU (used Central US instead); Central US hit an `AKSCapacityHeavyUsage` error for Container Apps (used West US 2 instead, meaning app and DB now live in different regions — documented, not hidden); had to register `Microsoft.DBforPostgreSQL` and `Microsoft.App` resource providers before first use; one transient `InternalServerError` on Container App creation resolved by simply retrying. Seeded the live database by re-running the exact same local pipeline scripts against it (batch architecture made this trivial — no separate "production seeding" mechanism needed) — same data-quality/matching/risk results as local (2,341 matches, 245 non-matches, 3,060 golden vendors). Added `.github/workflows/deploy.yml`: CD gated on CI's success via `workflow_run`, builds the image, pushes to GHCR, updates the Container App. **Live at https://concord-app.calmsmoke-3b88f840.westus2.azurecontainerapps.io.** Full architecture/cost-management/redeploy notes in [docs/deployment.md](docs/deployment.md), including how to stop/start the database between demos to control the one real ongoing cost (~$12–15/month if left running continuously).
+
 ## Current Work
-- M8: Deploy to Azure — not yet started.
+- M9: Documentation + portfolio case study — not yet started.
 
 ## Upcoming
-- M9: Documentation + portfolio case study.
+_None — M9 is the final planned milestone. See "Future Improvements" below for stretch work beyond it._
 
 ## Known Bugs
 _None currently open — see M6 entry above for bugs found and fixed this milestone._
@@ -33,6 +35,7 @@ _None currently open — see M6 entry above for bugs found and fixed this milest
 - `/api/pipeline/ingestion` runs synchronously in the request — fine at this data volume/latency, but a real deployment would move long-running pipeline triggers to a background task queue rather than blocking an HTTP request.
 - `golden_vendors` is rebuilt from scratch on every change rather than patched incrementally (deliberate simplicity choice, see `concord/golden/rebuild.py` docstring) — revisit only if rebuild time becomes noticeable at much larger scale.
 - Only 200 of 3,060 risk profiles have an LLM summary (the cost/call cap) — the rest show structured data only, no narrative. Fine for a portfolio demo; a real run would just re-invoke the script until the backlog clears.
+- The Container App (West US 2) and Postgres server (Central US) live in different Azure regions, purely due to regional capacity/restriction errors hit during provisioning (see [docs/deployment.md](docs/deployment.md)) — adds a small amount of avoidable cross-region latency. Not worth re-provisioning for a portfolio demo; would fix in a real production deployment.
 
 ## Architecture Decisions
 See [docs/charter.md](docs/charter.md) §9 for the initial decision set. Future decisions (e.g., migration tool choice, blocking key design, LLM provider/model choice) will be logged here as they're made, with rationale.
@@ -41,9 +44,7 @@ See [docs/charter.md](docs/charter.md) §9 for the initial decision set. Future 
 See [docs/charter.md](docs/charter.md) §8.
 
 ## Open Questions
-- Exact synthetic "messiness" patterns to engineer into source data (to be defined in M1).
-- Which LLM model to use for adjudication/risk summaries, and how to bound cost per run (to be defined in M4).
-- Specific Azure services/tier for deployment (Flexible Server vs. Container Apps vs. App Service) — to be finalized at M8.
+_None currently open — the three questions tracked here (M1 messiness patterns, M4 LLM model/cost bounding, M8 Azure service/tier choice) were all resolved as their respective milestones completed._
 
 ## Future Improvements
 - React frontend upgrade (stretch M10).

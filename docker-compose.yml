@@ -9,6 +9,23 @@ services:
       - "5432:5432"
     volumes:
       - concord_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U concord"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://concord:concord_dev_password@postgres:5432/concord
+    env_file:
+      - .env  # for ANTHROPIC_API_KEY -- never baked into the image itself
+    ports:
+      - "8020:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   concord_pgdata:
