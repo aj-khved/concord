@@ -15,7 +15,7 @@ from pathlib import Path
 
 from sqlalchemy import select
 
-from concord.db.models import LlmAdjudication, MatchCandidate, NormalizedVendorRecord
+from concord.db.models import LlmAdjudication, NormalizedVendorRecord
 from concord.db.session import get_session
 
 DATA_DIR = Path("data/synthetic")
@@ -46,9 +46,6 @@ def main() -> None:
             print("No adjudications found — run scripts/run_llm_adjudication.py first.")
             return
 
-        candidates_by_id = {
-            c.id: c for c in session.execute(select(MatchCandidate)).scalars().all()
-        }
         id_to_natural_key = {
             row.id: (row.source, row.source_record_id)
             for row in session.execute(select(NormalizedVendorRecord)).scalars().all()
@@ -61,9 +58,11 @@ def main() -> None:
     confirmed_non_match_errors = []
 
     for adjudication in adjudications:
-        candidate = candidates_by_id[adjudication.match_candidate_id]
         pair = frozenset(
-            {id_to_natural_key[candidate.record_id_1], id_to_natural_key[candidate.record_id_2]}
+            {
+                id_to_natural_key[adjudication.record_id_1],
+                id_to_natural_key[adjudication.record_id_2],
+            }
         )
         is_true_duplicate = pair in true_pairs
         counts[adjudication.outcome] += 1

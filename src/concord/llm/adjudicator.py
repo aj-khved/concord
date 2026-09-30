@@ -80,6 +80,8 @@ class AdjudicationResult:
     outcome: AdjudicationOutcome
     confidence: float
     rationale: str
+    input_tokens: int
+    output_tokens: int
 
 
 def _format_record(record: VendorRecordView) -> str:
@@ -136,4 +138,6 @@ def adjudicate_pair(
         outcome=_outcome_from_model_response(is_same_vendor, confidence),
         confidence=confidence,
         rationale=rationale,
+        input_tokens=response.usage.input_tokens,
+        output_tokens=response.usage.output_tokens,
     )

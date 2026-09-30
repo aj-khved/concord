@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from concord.llm.adjudicator import (
     TOOL_NAME,
@@ -62,8 +62,15 @@ class _FakeToolUseBlock:
 
 
 @dataclass
+class _FakeUsage:
+    input_tokens: int = 123
+    output_tokens: int = 45
+
+
+@dataclass
 class _FakeResponse:
     content: list
+    usage: _FakeUsage = field(default_factory=_FakeUsage)
 
 
 class _FakeMessages:

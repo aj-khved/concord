@@ -18,7 +18,10 @@ from concord.config import settings
 from concord.db.models import LlmAdjudication, MatchCandidate, NormalizedVendorRecord
 from concord.db.session import get_session
 from concord.llm.adjudicator import adjudicate_pair
+from concord.matching.pair_key import pair_key
 from concord.matching.schema import VendorRecordView
+from concord.observability.cost import estimate_cost_usd
+from concord.observability.pipeline_run import track_pipeline_run
 
 
 def _to_view(row: NormalizedVendorRecord) -> VendorRecordView:
@@ -46,59 +49,91 @@ if __name__ == "__main__":
 
     session = next(get_session())
     try:
-        latest_batch = session.execute(
-            select(MatchCandidate.batch_id).order_by(MatchCandidate.created_at.desc()).limit(1)
-        ).scalar_one()
+        with track_pipeline_run(session, "llm_adjudication") as run:
+            latest_batch = session.execute(
+                select(MatchCandidate.batch_id).order_by(MatchCandidate.created_at.desc()).limit(1)
+            ).scalar_one()
 
-        already_adjudicated = {
-            row.match_candidate_id
-            for row in session.execute(select(LlmAdjudication.match_candidate_id)).scalars().all()
-        }
+            # Keyed by the underlying record pair, not match_candidate_id --
+            # match_candidates is append-only, so a fresh matching-engine run
+            # produces new candidate ids for the same logical pairs. Keying
+            # by match_candidate_id would make every re-run "forget" prior
+            # adjudications and re-pay to redo them (a real bug, found by
+            # actually re-running the pipeline end to end).
+            already_adjudicated_pairs = {
+                pair_key(a.record_id_1, a.record_id_2)
+                for a in session.execute(select(LlmAdjudication)).scalars().all()
+            }
 
-        pending = (
-            session.execute(
-                select(MatchCandidate).where(
-                    MatchCandidate.batch_id == latest_batch,
-                    MatchCandidate.tier == "pending_review",
+            pending = (
+                session.execute(
+                    select(MatchCandidate).where(
+                        MatchCandidate.batch_id == latest_batch,
+                        MatchCandidate.tier == "pending_review",
+                    )
                 )
+                .scalars()
+                .all()
             )
-            .scalars()
-            .all()
-        )
-        not_yet_adjudicated = [c for c in pending if c.id not in already_adjudicated]
-        to_adjudicate = not_yet_adjudicated[: settings.llm_max_calls_per_run]
+            not_yet_adjudicated = [
+                c
+                for c in pending
+                if pair_key(c.record_id_1, c.record_id_2) not in already_adjudicated_pairs
+            ]
+            to_adjudicate = not_yet_adjudicated[: settings.llm_max_calls_per_run]
 
-        records_by_id = {
-            row.id: _to_view(row)
-            for row in session.execute(select(NormalizedVendorRecord)).scalars().all()
-        }
+            records_by_id = {
+                row.id: _to_view(row)
+                for row in session.execute(select(NormalizedVendorRecord)).scalars().all()
+            }
 
-        print(f"Pending-review pairs: {len(pending)}")
-        print(f"Already adjudicated (skipped): {len(pending) - len(not_yet_adjudicated)}")
-        print(
-            f"Adjudicating now (capped at {settings.llm_max_calls_per_run}): {len(to_adjudicate)}"
-        )
-        deferred = len(not_yet_adjudicated) - len(to_adjudicate)
-        if deferred:
-            print(f"Deferred to a future run due to cap: {deferred}")
+            print(f"Pending-review pairs: {len(pending)}")
+            print(f"Already adjudicated (skipped): {len(pending) - len(not_yet_adjudicated)}")
+            print(
+                f"Adjudicating now (capped at {settings.llm_max_calls_per_run}): "
+                f"{len(to_adjudicate)}"
+            )
+            deferred = len(not_yet_adjudicated) - len(to_adjudicate)
+            if deferred:
+                print(f"Deferred to a future run due to cap: {deferred}")
 
-        for candidate in to_adjudicate:
-            record_a = records_by_id[candidate.record_id_1]
-            record_b = records_by_id[candidate.record_id_2]
-            result = adjudicate_pair(client, record_a, record_b, model=settings.llm_model)
+            total_input_tokens = 0
+            total_output_tokens = 0
+            outcome_counts: dict[str, int] = {}
 
-            session.add(
-                LlmAdjudication(
-                    match_candidate_id=candidate.id,
-                    model=settings.llm_model,
-                    outcome=result.outcome.value,
-                    confidence=result.confidence,
-                    rationale=result.rationale,
+            for candidate in to_adjudicate:
+                record_a = records_by_id[candidate.record_id_1]
+                record_b = records_by_id[candidate.record_id_2]
+                result = adjudicate_pair(client, record_a, record_b, model=settings.llm_model)
+
+                session.add(
+                    LlmAdjudication(
+                        record_id_1=candidate.record_id_1,
+                        record_id_2=candidate.record_id_2,
+                        model=settings.llm_model,
+                        outcome=result.outcome.value,
+                        confidence=result.confidence,
+                        rationale=result.rationale,
+                    )
                 )
-            )
-            summary = f"{result.outcome.value} ({result.confidence:.2f})"
-            print(f"  {record_a.legal_name!r} <-> {record_b.legal_name!r}: {summary}")
+                total_input_tokens += result.input_tokens
+                total_output_tokens += result.output_tokens
+                outcome_counts[result.outcome.value] = (
+                    outcome_counts.get(result.outcome.value, 0) + 1
+                )
+                summary = f"{result.outcome.value} ({result.confidence:.2f})"
+                print(f"  {record_a.legal_name!r} <-> {record_b.legal_name!r}: {summary}")
 
-        session.commit()
+            session.commit()
+
+            run.summary = {
+                "batch_id": str(latest_batch),
+                "pending_review_pairs": len(pending),
+                "adjudicated_this_run": len(to_adjudicate),
+                "outcome_counts": outcome_counts,
+                "input_tokens": total_input_tokens,
+                "output_tokens": total_output_tokens,
+                "estimated_cost_usd": estimate_cost_usd(total_input_tokens, total_output_tokens),
+            }
     finally:
         session.close()

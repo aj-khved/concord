@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.anthropic.com"
     llm_model: str = "claude-haiku-4-5-20251001"
     llm_max_calls_per_run: int = 200
+    # Approximate Haiku-tier rates for relative cost tracking, NOT exact
+    # billing — see console.anthropic.com/settings/billing for real pricing.
+    llm_input_cost_per_mtok: float = 1.0
+    llm_output_cost_per_mtok: float = 5.0
 
 
 settings = Settings()

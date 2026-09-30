@@ -1,7 +1,10 @@
-"""Minimal server-rendered review UI (M5). Deliberately not a React SPA —
-see docs/charter.md §9.6 for why: proving the review workflow matters more
-right now than frontend polish. A REST API (FR10) comes in M7."""
+"""Minimal server-rendered review UI (M5) plus a JSON REST API (M7/FR10) —
+concord.api.rest. Deliberately not a React SPA for the UI — see
+docs/charter.md §9.6 for why: proving the review workflow matters more
+right now than frontend polish."""
 
+import logging
+import time
 import uuid
 from pathlib import Path
 
@@ -11,17 +14,28 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from concord.api.rest import router as rest_router
+from concord.api.review_service import (
+    CandidateNotFoundError,
+    InvalidDecisionError,
+    adjudications_by_pair,
+    decide_pair,
+    latest_batch_id,
+    resolved_statuses,
+)
 from concord.db.models import (
     GoldenVendor,
-    HumanReview,
-    LlmAdjudication,
     MatchCandidate,
     NormalizedVendorRecord,
     VendorRiskProfile,
 )
 from concord.db.session import get_session
-from concord.golden.rebuild import rebuild_golden_vendors
-from concord.review.resolution import PairStatus, resolve_pair
+from concord.matching.pair_key import pair_key
+from concord.observability.logging_config import configure_logging
+from concord.review.resolution import PairStatus
+
+configure_logging()
+logger = logging.getLogger("concord.api")
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -29,44 +43,34 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 app = FastAPI(title="Concord")
 
 
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.perf_counter()
+    response = await call_next(request)
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    logger.info(
+        "http_request",
+        extra={
+            "extra_fields": {
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code,
+                "duration_ms": duration_ms,
+            }
+        },
+    )
+    return response
+
+
 def _session() -> Session:
     return next(get_session())
-
-
-def _latest_batch_id(session: Session) -> uuid.UUID | None:
-    """match_candidates is append-only: every matching-engine run adds a new
-    batch rather than replacing the last one (see MatchCandidate docstring).
-    Only the most recent batch reflects current, authoritative pair
-    resolutions — older batches are audit history, not something to merge
-    counts across."""
-    return session.execute(
-        select(MatchCandidate.batch_id).order_by(MatchCandidate.created_at.desc()).limit(1)
-    ).scalar_one_or_none()
-
-
-def _resolved_statuses(session: Session) -> dict[uuid.UUID, PairStatus]:
-    batch_id = _latest_batch_id(session)
-    candidates = (
-        session.execute(select(MatchCandidate).where(MatchCandidate.batch_id == batch_id))
-        .scalars()
-        .all()
-        if batch_id
-        else []
-    )
-    adjudications = {
-        a.match_candidate_id: a for a in session.execute(select(LlmAdjudication)).scalars().all()
-    }
-    reviews = {
-        r.match_candidate_id: r for r in session.execute(select(HumanReview)).scalars().all()
-    }
-    return {c.id: resolve_pair(c, adjudications.get(c.id), reviews.get(c.id)) for c in candidates}
 
 
 @app.get("/")
 def dashboard(request: Request):
     session = _session()
     try:
-        statuses = _resolved_statuses(session)
+        statuses = resolved_statuses(session)
         status_counts = {status: 0 for status in PairStatus}
         for status in statuses.values():
             status_counts[status] += 1
@@ -91,8 +95,8 @@ def dashboard(request: Request):
 def review_queue(request: Request):
     session = _session()
     try:
-        statuses = _resolved_statuses(session)
-        batch_id = _latest_batch_id(session)
+        statuses = resolved_statuses(session)
+        batch_id = latest_batch_id(session)
         candidates_by_id = {
             c.id: c
             for c in session.execute(
@@ -101,10 +105,7 @@ def review_queue(request: Request):
             .scalars()
             .all()
         }
-        adjudications = {
-            a.match_candidate_id: a
-            for a in session.execute(select(LlmAdjudication)).scalars().all()
-        }
+        adjudications = adjudications_by_pair(session)
         records_by_id = {
             r.id: r for r in session.execute(select(NormalizedVendorRecord)).scalars().all()
         }
@@ -114,7 +115,9 @@ def review_queue(request: Request):
                 "candidate": candidates_by_id[cid],
                 "record_a": records_by_id[candidates_by_id[cid].record_id_1],
                 "record_b": records_by_id[candidates_by_id[cid].record_id_2],
-                "adjudication": adjudications.get(cid),
+                "adjudication": adjudications.get(
+                    pair_key(candidates_by_id[cid].record_id_1, candidates_by_id[cid].record_id_2)
+                ),
             }
             for cid, status in statuses.items()
             if status == PairStatus.NEEDS_REVIEW
@@ -132,23 +135,14 @@ def decide(
     reviewer: str = Form(...),
     note: str | None = Form(None),
 ):
-    if decision not in ("approve", "reject"):
-        raise HTTPException(status_code=400, detail="decision must be 'approve' or 'reject'")
-
     session = _session()
     try:
-        parsed_id = uuid.UUID(candidate_id)
-        already_reviewed = session.execute(
-            select(HumanReview).where(HumanReview.match_candidate_id == parsed_id)
-        ).scalar_one_or_none()
-        if already_reviewed is None:
-            session.add(
-                HumanReview(
-                    match_candidate_id=parsed_id, decision=decision, reviewer=reviewer, note=note
-                )
-            )
-            session.commit()
-            rebuild_golden_vendors(session)
+        try:
+            decide_pair(session, uuid.UUID(candidate_id), decision, reviewer, note)
+        except InvalidDecisionError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except CandidateNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
     finally:
         session.close()
 
@@ -203,3 +197,6 @@ def vendor_detail(request: Request, vendor_id: str):
         )
     finally:
         session.close()
+
+
+app.include_router(rest_router, prefix="/api")

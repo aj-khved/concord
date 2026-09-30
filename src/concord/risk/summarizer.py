@@ -38,6 +38,8 @@ them."""
 class SummaryResult:
     summary: str
     fallback_used: bool
+    input_tokens: int
+    output_tokens: int
 
 
 def _fallback_summary(assessment: RiskAssessment) -> str:
@@ -64,8 +66,20 @@ def summarize_risk(
 
     text_blocks = [block.text for block in response.content if block.type == "text"]
     summary = " ".join(text_blocks).strip()
+    input_tokens = response.usage.input_tokens
+    output_tokens = response.usage.output_tokens
 
     if not summary or len(summary) > MAX_SUMMARY_LENGTH:
-        return SummaryResult(summary=_fallback_summary(assessment), fallback_used=True)
+        return SummaryResult(
+            summary=_fallback_summary(assessment),
+            fallback_used=True,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
 
-    return SummaryResult(summary=summary, fallback_used=False)
+    return SummaryResult(
+        summary=summary,
+        fallback_used=False,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )

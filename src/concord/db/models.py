@@ -88,17 +88,24 @@ class MatchCandidate(Base):
 
 
 class LlmAdjudication(Base):
-    """One LLM judgment for one match_candidate. Append-only and keyed so a
-    candidate is only ever adjudicated once (idempotency, and cost control —
-    re-running the adjudication script never re-pays for a pair it already
-    has an answer for)."""
+    """One LLM judgment for one record pair. Keyed by (record_id_1,
+    record_id_2) -- the underlying pair identity -- NOT by match_candidate_id.
+    match_candidates is append-only (a fresh row, with a fresh id, every time
+    the matching engine re-runs), so keying by match_candidate_id would
+    silently orphan every prior adjudication on each re-run, forcing costly
+    re-adjudication of pairs that already have a perfectly good answer. This
+    was a real bug, found by actually re-running the matching engine after
+    M4/M5 and watching resolved pairs revert to needs_review."""
 
     __tablename__ = "llm_adjudications"
-    __table_args__ = (UniqueConstraint("match_candidate_id", name="uq_adjudicated_candidate"),)
+    __table_args__ = (UniqueConstraint("record_id_1", "record_id_2", name="uq_adjudicated_pair"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    match_candidate_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("match_candidates.id")
+    record_id_1: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("normalized_vendor_records.id")
+    )
+    record_id_2: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("normalized_vendor_records.id")
     )
     model: Mapped[str] = mapped_column(String(100))
     outcome: Mapped[str] = mapped_column(String(30))
@@ -110,17 +117,22 @@ class LlmAdjudication(Base):
 
 
 class HumanReview(Base):
-    """One reviewer decision for one match_candidate. A human decision is
-    final — it overrides the deterministic engine's tier and any LLM
-    adjudication (see concord/review/resolution.py). Append-only and unique
-    per candidate: a pair is only ever decided by a human once."""
+    """One reviewer decision for one record pair. Keyed by (record_id_1,
+    record_id_2) for the same reason as LlmAdjudication above -- a human
+    decision must survive re-running the matching engine, not just survive
+    within one batch. A human decision is final: it overrides the
+    deterministic engine's tier and any LLM adjudication (see
+    concord/review/resolution.py)."""
 
     __tablename__ = "human_reviews"
-    __table_args__ = (UniqueConstraint("match_candidate_id", name="uq_reviewed_candidate"),)
+    __table_args__ = (UniqueConstraint("record_id_1", "record_id_2", name="uq_reviewed_pair"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    match_candidate_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("match_candidates.id")
+    record_id_1: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("normalized_vendor_records.id")
+    )
+    record_id_2: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("normalized_vendor_records.id")
     )
     decision: Mapped[str] = mapped_column(String(10))  # "approve" or "reject"
     reviewer: Mapped[str] = mapped_column(String(100))
@@ -179,6 +191,26 @@ class VendorRiskProfile(Base):
         default=lambda: datetime.datetime.now(datetime.UTC),
         onupdate=lambda: datetime.datetime.now(datetime.UTC),
     )
+
+
+class PipelineRun(Base):
+    """One row per execution of any pipeline script (ingestion, matching,
+    LLM adjudication, risk ingestion, risk summarization) — the concrete
+    answer to "did this run, how long did it take, and what did it cost"
+    (NFR: observability). `summary` holds run-type-specific details (record
+    counts, tier breakdowns, token usage, estimated cost) as flexible JSON
+    rather than a rigid schema, since each run type reports different things."""
+
+    __tablename__ = "pipeline_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_type: Mapped[str] = mapped_column(String(50))
+    status: Mapped[str] = mapped_column(String(10))  # "success" or "failed"
+    started_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True))
+    duration_ms: Mapped[int] = mapped_column(Integer)
+    summary: Mapped[dict] = mapped_column(JSON)
+    error_message: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
 
 class DataQualityRun(Base):

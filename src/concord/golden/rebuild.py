@@ -19,6 +19,7 @@ from concord.db.models import (
     NormalizedVendorRecord,
 )
 from concord.golden.builder import build_golden_vendors
+from concord.matching.pair_key import pair_key
 from concord.matching.schema import VendorRecordView
 from concord.review.resolution import PairStatus, resolve_pair
 
@@ -62,20 +63,19 @@ def rebuild_golden_vendors(session: Session) -> RebuildSummary:
         if latest_batch_id
         else []
     )
-    adjudications_by_candidate = {
-        a.match_candidate_id: a for a in session.execute(select(LlmAdjudication)).scalars().all()
+    adjudications_by_pair = {
+        pair_key(a.record_id_1, a.record_id_2): a
+        for a in session.execute(select(LlmAdjudication)).scalars().all()
     }
-    reviews_by_candidate = {
-        r.match_candidate_id: r for r in session.execute(select(HumanReview)).scalars().all()
+    reviews_by_pair = {
+        pair_key(r.record_id_1, r.record_id_2): r
+        for r in session.execute(select(HumanReview)).scalars().all()
     }
 
     match_pairs: set[tuple[str, str]] = set()
     for candidate in candidates:
-        status = resolve_pair(
-            candidate,
-            adjudications_by_candidate.get(candidate.id),
-            reviews_by_candidate.get(candidate.id),
-        )
+        key = pair_key(candidate.record_id_1, candidate.record_id_2)
+        status = resolve_pair(candidate, adjudications_by_pair.get(key), reviews_by_pair.get(key))
         if status == PairStatus.MATCH:
             match_pairs.add((str(candidate.record_id_1), str(candidate.record_id_2)))
 

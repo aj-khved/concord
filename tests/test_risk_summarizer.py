@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from concord.risk.scoring import RiskAssessment
 from concord.risk.summarizer import build_user_message, summarize_risk
@@ -22,8 +22,15 @@ class _FakeTextBlock:
 
 
 @dataclass
+class _FakeUsage:
+    input_tokens: int = 80
+    output_tokens: int = 20
+
+
+@dataclass
 class _FakeResponse:
     content: list
+    usage: _FakeUsage = field(default_factory=_FakeUsage)
 
 
 class _FakeMessages:
