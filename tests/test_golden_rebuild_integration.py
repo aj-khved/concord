@@ -9,6 +9,7 @@ alongside the current one, corrupting the match/non-match/needs-review
 counts (this actually happened during development after re-running the
 matching engine twice against the same data)."""
 
+import datetime
 import uuid
 
 import pytest
@@ -73,6 +74,14 @@ def test_rebuild_only_uses_the_latest_batch(db_session):
     record_b = _make_record(db_session, "B", "B-1", "Acme LLC")
     db_session.commit()
 
+    # Explicit, clearly-ordered timestamps rather than relying on wall-clock
+    # `now()` defaults: two inserts in a fast test can land in the same
+    # microsecond, and ORDER BY created_at DESC has no tiebreaker in that
+    # case. Real matching-engine runs are never microseconds apart, so this
+    # is a test-determinism fix, not a production concern.
+    an_hour_ago = datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=1)
+    now = datetime.datetime.now(datetime.UTC)
+
     # First (older, superseded) matching run: tier says non-match.
     old_batch_id = uuid.uuid4()
     db_session.add(
@@ -83,6 +92,7 @@ def test_rebuild_only_uses_the_latest_batch(db_session):
             score=0.2,
             tier="auto_reject",
             features={},
+            created_at=an_hour_ago,
         )
     )
     db_session.commit()
@@ -98,6 +108,7 @@ def test_rebuild_only_uses_the_latest_batch(db_session):
             score=0.95,
             tier="auto_merge",
             features={},
+            created_at=now,
         )
     )
     db_session.commit()

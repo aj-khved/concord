@@ -7,6 +7,22 @@
   <p>Tax ID: {{ vendor.tax_id or "—" }} · Phone: {{ vendor.phone or "—" }} · Category: {{ vendor.category or "—" }}</p>
 </div>
 
+{% if risk_profile %}
+<div class="card">
+  <h2>Risk profile</h2>
+  <p><strong>{{ risk_profile.risk_level }}</strong> (score {{ risk_profile.risk_score }}/100)</p>
+  <p>
+    Sanctions flag: {{ "Yes" if risk_profile.sanctions_flag else "No" }} ·
+    Country risk tier: {{ risk_profile.country_risk_tier }} ·
+    Financial stability: {{ risk_profile.financial_stability_score }}/100
+  </p>
+  {% if risk_profile.llm_summary %}
+  <p><em>{{ risk_profile.llm_summary }}</em></p>
+  {% endif %}
+  <p style="color: #666; font-size: 0.9rem;">Raw note (source data): "{{ risk_profile.notes }}"</p>
+</div>
+{% endif %}
+
 <h2>Source records ({{ members|length }})</h2>
 <table>
   <tr><th>Source</th><th>Source ID</th><th>Legal name (as ingested)</th><th>Address (as ingested)</th></tr>

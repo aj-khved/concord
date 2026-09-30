@@ -2,15 +2,16 @@
 {% block title %}Concord — Vendor Master{% endblock %}
 {% block content %}
 <h1>Vendor Master</h1>
-<p>Showing {{ vendors|length }} golden vendors (largest clusters first).</p>
+<p>Showing {{ rows|length }} golden vendors (largest clusters first).</p>
 <table>
-  <tr><th>Legal name</th><th>City</th><th>Category</th><th>Source records merged</th></tr>
-  {% for v in vendors %}
+  <tr><th>Legal name</th><th>City</th><th>Category</th><th>Source records merged</th><th>Risk level</th></tr>
+  {% for v, risk in rows %}
   <tr>
     <td><a href="/vendors/{{ v.id }}">{{ v.legal_name }}</a></td>
     <td>{{ v.city }}</td>
     <td>{{ v.category }}</td>
     <td>{{ v.member_count }}</td>
+    <td>{% if risk %}{{ risk.risk_level }} ({{ risk.risk_score }}){% else %}—{% endif %}</td>
   </tr>
   {% endfor %}
 </table>

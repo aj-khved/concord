@@ -17,6 +17,7 @@ from concord.db.models import (
     LlmAdjudication,
     MatchCandidate,
     NormalizedVendorRecord,
+    VendorRiskProfile,
 )
 from concord.db.session import get_session
 from concord.golden.rebuild import rebuild_golden_vendors
@@ -162,8 +163,12 @@ def vendor_list(request: Request):
             session.execute(select(GoldenVendor).order_by(GoldenVendor.member_count.desc()))
             .scalars()
             .all()
-        )
-        return templates.TemplateResponse(request, "vendors.html", {"vendors": vendors[:200]})
+        )[:200]
+        risk_by_tax_id = {
+            p.tax_id: p for p in session.execute(select(VendorRiskProfile)).scalars().all()
+        }
+        rows = [(v, risk_by_tax_id.get(v.tax_id)) for v in vendors]
+        return templates.TemplateResponse(request, "vendors.html", {"rows": rows})
     finally:
         session.close()
 
@@ -184,8 +189,17 @@ def vendor_detail(request: Request, vendor_id: str):
             .scalars()
             .all()
         )
+        risk_profile = (
+            session.execute(
+                select(VendorRiskProfile).where(VendorRiskProfile.tax_id == vendor.tax_id)
+            ).scalar_one_or_none()
+            if vendor.tax_id
+            else None
+        )
         return templates.TemplateResponse(
-            request, "vendor_detail.html", {"vendor": vendor, "members": members}
+            request,
+            "vendor_detail.html",
+            {"vendor": vendor, "members": members, "risk_profile": risk_profile},
         )
     finally:
         session.close()

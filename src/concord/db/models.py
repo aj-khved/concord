@@ -154,6 +154,33 @@ class GoldenVendor(Base):
     )
 
 
+class VendorRiskProfile(Base):
+    """Risk data joined by tax_id (FR9), not by golden_vendor_id — golden_vendors
+    is rebuilt from scratch on every change (new UUIDs each time, see
+    GoldenVendor docstring), so a stored FK to it would break on every
+    rebuild. tax_id is the stable, externally-meaningful key a real risk
+    feed would actually use. Upserted per tax_id, like normalized_vendor_records."""
+
+    __tablename__ = "vendor_risk_profiles"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tax_id: Mapped[str] = mapped_column(String(20), unique=True)
+    legal_name: Mapped[str] = mapped_column(String(255))
+    sanctions_flag: Mapped[bool] = mapped_column()
+    country_risk_tier: Mapped[str] = mapped_column(String(10))
+    financial_stability_score: Mapped[int] = mapped_column(Integer)
+    risk_score: Mapped[int] = mapped_column(Integer)
+    risk_level: Mapped[str] = mapped_column(String(10))
+    notes: Mapped[str] = mapped_column(String(1000))
+    llm_summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    llm_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        onupdate=lambda: datetime.datetime.now(datetime.UTC),
+    )
+
+
 class DataQualityRun(Base):
     """One row per ingestion run, summarizing pass/fail counts and the
     breakdown of issue types found (FR11)."""
