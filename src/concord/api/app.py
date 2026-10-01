@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
@@ -41,6 +42,19 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 app = FastAPI(title="Concord")
+
+# Allows the portfolio website (any origin) to fetch read-only data from
+# /api/* client-side, e.g. to show live stats on a project page. Deliberately
+# scoped to GET only -- the data here is already fully public with no auth,
+# so permissive read access is low-risk, but a browser should still never be
+# able to cross-origin POST a review decision or trigger a pipeline run from
+# an arbitrary third-party page.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
 
 
 @app.middleware("http")
